@@ -276,3 +276,114 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_bib_rows_to_stdout (TEXT, INT) RET
   END;
 
 $$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS collectionHQ.write_hold_rows_to_stdout(INT);
+CREATE OR REPLACE FUNCTION collectionHQ.write_hold_rows_to_stdout (INT) RETURNS VOID AS $$
+-- Usage: SELECT collectionHQ.write_hold_rows_to_stdout (org_unit_id);
+  
+  DECLARE
+    org_unit_id ALIAS for $1;
+    lms_bib_id BIGINT := 0;
+    branch_code TEXT := '';
+    isbn TEXT := '';
+    current_holds INTEGER := 0;
+    total_holds INTEGER := 0;
+    author  TEXT := '';
+    title TEXT := '';
+    publication_date TEXT := '';
+    series TEXT := '';
+    volume TEXT := '';
+    format TEXT := '';
+    info1 TEXT := '';
+    info2 TEXT := '';
+    num_rows INTEGER := 0;
+    output TEXT = '';
+    hold RECORD;
+  
+  BEGIN
+  
+    FOR hold IN
+      SELECT target, pickup_lib, COUNT(id) AS total, 
+        SUM(CASE WHEN fulfillment_time IS NULL AND cancel_time IS NULL THEN 1 ELSE 0 END) AS current 
+      FROM action.hold_request 
+      WHERE hold_type='T' 
+        AND pickup_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) 
+      GROUP BY 1,2
+    LOOP
+    
+      CONTINUE WHEN (
+        SELECT COUNT(id) 
+        FROM asset.call_number 
+        WHERE NOT deleted 
+          AND record = hold.target 
+          AND owning_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id))
+      ) = 0;
+      
+      lms_bib_id := hold.target;
+      current_holds := hold.current;
+      total_holds := hold.total;
+      
+      SELECT aou.shortname 
+      INTO branch_code 
+      FROM actor.org_unit aou 
+      WHERE aou.id = hold.pickup_lib;
+      
+      SELECT ARRAY_TO_STRING(rmsr.isbn, ';'), rmsr.title, rmsr.author, rmsr.pubdate 
+      INTO isbn, title, author, publication_date 
+      FROM reporter.materialized_simple_record rmsr 
+      WHERE rmsr.id = hold.target;
+      
+      SELECT acn.label 
+      INTO volume 
+      FROM asset.call_number acn 
+      WHERE acn.record = hold.target 
+        AND acn.owning_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) 
+      LIMIT 1;
+      
+      SELECT acp.circ_modifier 
+      INTO format 
+      FROM asset.copy acp INNER JOIN asset.call_number acn ON (acn.id = acp.call_number) 
+      WHERE acn.record = hold.target 
+        AND acp.circ_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) 
+      LIMIT 1;
+      
+      SELECT 
+        SUBSTRING(naco_normalize((XPATH('//marc:datafield[@tag="490" or @tag="440"][1]/marc:subfield[@code="a"]/text()', marc::XML, 
+          ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT, 'a') FROM 1 FOR 100) 
+      INTO series 
+      FROM biblio.record_entry 
+      WHERE id = lms_bib_id;
+      
+      SELECT 
+        SUBSTRING(naco_normalize((XPATH('//marc:datafield[@tag="490" or @tag="440"][1]/marc:subfield[@code="v"]/text()', marc::XML, 
+          ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT) FROM 1 FOR 20) 
+      INTO volume 
+      FROM biblio.record_entry
+      WHERE id = lms_bib_id;
+      
+      output := lms_bib_id || ','
+      || collectionHQ.quote(branch_code) || ','
+      || COALESCE(collectionHQ.quote(isbn), '') || ','
+      || current_holds || ','
+      || total_holds || ','
+      || COALESCE(collectionHQ.quote(author), '') || ','
+      || COALESCE(collectionHQ.quote(title), '') || ','
+      || COALESCE(collectionHQ.quote(publication_date), '') || ','
+      || COALESCE(collectionHQ.quote(series), '') || ','
+      || COALESCE(collectionHQ.quote(volume), '') || ','
+      || COALESCE(collectionHQ.quote(format), '') || ','
+      || COALESCE(collectionHQ.quote(info1), '') || ','
+      || COALESCE(collectionHQ.quote(info2), '');
+      
+      RAISE INFO '%', output;
+      
+      num_rows := num_rows + 1;
+      IF (num_rows::numeric % 1000.0 = 0.0) THEN RAISE INFO '% rows written', num_rows; END IF;
+      
+    END LOOP;
+    
+    RAISE INFO '% rows written in total.', num_rows;
+    
+  END;
+
+$$ LANGUAGE plpgsql;
