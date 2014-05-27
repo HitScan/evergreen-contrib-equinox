@@ -165,29 +165,29 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
       filter_level_3 := ''; -- FIXME do we want something else here?
       filter_level_4 := ''; -- FIXME do we want something else here?
   
-      output := '##HOLD##,'
-        || lms_bib_id || ','
-        || COALESCE(collectionHQ.quote(authority_code), '') || ','
-        || COALESCE(collectionHQ.quote(library_code), '') || ','
-        || COALESCE(collectionHQ.quote(bar_code), '') || ','
-        || COALESCE(collectionHQ.quote(last_use_date), '') || ','
-        || COALESCE(cumulative_use_total, '') || ','
-        || COALESCE(cumulative_use_current, '') || ','
-        || COALESCE(collectionHQ.quote(status), '') || ','
-        || COALESCE(collectionHQ.quote(date_added), '') || ','
-        || COALESCE(price, '') || ','
-        || COALESCE(collectionHQ.quote(purchase_code), '') || ','
-        || COALESCE(collectionHQ.quote(rotating_stock), '') || ','
-        || COALESCE(collectionHQ.quote(lib_supsel_tag), '') || ','
-        || COALESCE(collectionHQ.quote(gen_supsel_tag), '') || ','
-        || COALESCE(collectionHQ.quote(notes), '') || ','
-        || COALESCE(collectionHQ.quote(extract_date), '') || ','
-        || COALESCE(collectionHQ.quote(collection_code), '') || ','
-        || COALESCE(collectionHQ.quote(collection_code_level_2), '') || ','
-        || COALESCE(collectionHQ.quote(filter_level_1), '') || ','
-        || COALESCE(collectionHQ.quote(filter_level_2), '') || ','
-        || COALESCE(collectionHQ.quote(filter_level_3), '') || ','
-        || COALESCE(collectionHQ.quote(filter_level_4), '') || ','
+      output := '##HOLD##|'
+        || lms_bib_id || '|'
+        || COALESCE(collectionHQ.quote(authority_code), '') || '|'
+        || COALESCE(collectionHQ.quote(library_code), '') || '|'
+        || COALESCE(collectionHQ.quote(bar_code), '') || '|'
+        || COALESCE(collectionHQ.quote(last_use_date), '') || '|'
+        || COALESCE(cumulative_use_total, '') || '|'
+        || COALESCE(cumulative_use_current, '') || '|'
+        || COALESCE(collectionHQ.quote(status), '') || '|'
+        || COALESCE(collectionHQ.quote(date_added), '') || '|'
+        || COALESCE(price, '') || '|'
+        || COALESCE(collectionHQ.quote(purchase_code), '') || '|'
+        || COALESCE(collectionHQ.quote(rotating_stock), '') || '|'
+        || COALESCE(collectionHQ.quote(lib_supsel_tag), '') || '|'
+        || COALESCE(collectionHQ.quote(gen_supsel_tag), '') || '|'
+        || COALESCE(collectionHQ.quote(notes), '') || '|'
+        || COALESCE(collectionHQ.quote(extract_date), '') || '|'
+        || COALESCE(collectionHQ.quote(collection_code), '') || '|'
+        || COALESCE(collectionHQ.quote(collection_code_level_2), '') || '|'
+        || COALESCE(collectionHQ.quote(filter_level_1), '') || '|'
+        || COALESCE(collectionHQ.quote(filter_level_2), '') || '|'
+        || COALESCE(collectionHQ.quote(filter_level_3), '') || '|'
+        || COALESCE(collectionHQ.quote(filter_level_4), '') || '|'
         || COALESCE(collectionHQ.quote(isbn), '');
   
        RAISE INFO '%', output;
@@ -250,18 +250,18 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_bib_rows_to_stdout (TEXT, INT) RET
       SELECT REPLACE(NOW()::DATE::TEXT, '-', '') INTO extract_date;
   
       output := 
-        '##BIB##,'
-        || lms_bib_id || ','
-        || COALESCE(collectionHQ.quote(library_service_code), '') || ','
-        || COALESCE(collectionHQ.quote(isbn), '') || ','
-        || COALESCE(collectionHQ.quote(title), '') || ','
-        || COALESCE(collectionHQ.quote(author), '') || ','
-        || COALESCE(collectionHQ.quote(edition_num), '') || ','
-        || COALESCE(collectionHQ.quote(publication_date), '') || ','
-        || COALESCE(collectionHQ.quote(publisher), '') || ','
-        || COALESCE(price, '') || ','
-        || COALESCE(collectionHQ.quote(lms_item_type), '') || ','
-        || COALESCE(collectionHQ.quote(class_num), '') || ','
+        '##BIB##|'
+        || lms_bib_id || '|'
+        || COALESCE(collectionHQ.quote(library_service_code), '') || '|'
+        || COALESCE(collectionHQ.quote(isbn), '') || '|'
+        || COALESCE(collectionHQ.quote(title), '') || '|'
+        || COALESCE(collectionHQ.quote(author), '') || '|'
+        || COALESCE(collectionHQ.quote(edition_num), '') || '|'
+        || COALESCE(collectionHQ.quote(publication_date), '') || '|'
+        || COALESCE(collectionHQ.quote(publisher), '') || '|'
+        || COALESCE(price, '') || '|'
+        || COALESCE(collectionHQ.quote(lms_item_type), '') || '|'
+        || COALESCE(collectionHQ.quote(class_num), '') || '|'
         || COALESCE(collectionHQ.quote(extract_date), '');
   
        RAISE INFO '%', output;
@@ -361,19 +361,19 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_hold_rows_to_stdout (INT) RETURNS 
       FROM biblio.record_entry
       WHERE id = lms_bib_id;
       
-      output := lms_bib_id || ','
-      || collectionHQ.quote(branch_code) || ','
-      || COALESCE(collectionHQ.quote(isbn), '') || ','
-      || current_holds || ','
-      || total_holds || ','
-      || COALESCE(collectionHQ.quote(author), '') || ','
-      || COALESCE(collectionHQ.quote(title), '') || ','
-      || COALESCE(collectionHQ.quote(publication_date), '') || ','
-      || COALESCE(collectionHQ.quote(series), '') || ','
-      || COALESCE(collectionHQ.quote(volume), '') || ','
-      || COALESCE(collectionHQ.quote(format), '') || ','
-      || COALESCE(collectionHQ.quote(info1), '') || ','
-      || COALESCE(collectionHQ.quote(info2), '');
+      output := lms_bib_id || '|'
+        || collectionHQ.quote(branch_code) || '|'
+        || COALESCE(collectionHQ.quote(isbn), '') || '|'
+        || current_holds || '|'
+        || total_holds || '|'
+        || COALESCE(collectionHQ.quote(author), '') || '|'
+        || COALESCE(collectionHQ.quote(title), '') || '|'
+        || COALESCE(collectionHQ.quote(publication_date), '') || '|'
+        || COALESCE(collectionHQ.quote(series), '') || '|'
+        || COALESCE(collectionHQ.quote(volume), '') || '|'
+        || COALESCE(collectionHQ.quote(format), '') || '|'
+        || COALESCE(collectionHQ.quote(info1), '') || '|'
+        || COALESCE(collectionHQ.quote(info2), '');
       
       RAISE INFO '%', output;
       
