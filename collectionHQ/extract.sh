@@ -28,15 +28,18 @@ FTPPASS="passwd"
 FTPSITE="ftp.collectionhq.com"
 EMAILFROM="you@example.org"
 EMAILTO="thee@example.org"
+EXTRACTORG=1
+BIBEXTRACT="SELECT collectionHQ.write_bib_rows_to_stdout('$LIBRARYNAME',$EXTRACTORG);"
+ITEMEXTRACT="SELECT collectionHQ.write_item_rows_to_stdout('$LIBRARYNAME',$EXTRACTORG);"
 
 function get_data_from_sql {
   echo The extract for $DATE has begun. | ./send-email.pl --from "$EMAILFROM" --to "$EMAILTO" --subject "collectionHQ extraction has begun"
   date
   echo Fetching bibs...
-  psql -A -t -U evergreen < get_bibs.sql 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]/) { print STDERR; } else { print; }' > bibs-$DATE.txt
+  psql -A -X -q -t -U evergreen -c "$BIBEXTRACT" 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]/) { print STDERR; } else { print; }' > bibs-$DATE.txt
   date
   echo Fetching items...
-  psql -A -t -U evergreen < get_items.sql 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]/) { print STDERR; } else { print; }' > items-$DATE.txt
+  psql -A -X -q -t -U evergreen -c "$ITEMEXTRACT" 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]/) { print STDERR; } else { print; }' > items-$DATE.txt
   date
   echo done.
 }

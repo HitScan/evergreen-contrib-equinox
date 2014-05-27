@@ -20,7 +20,6 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
-LIBRARYNAME="LIBRARYCODE" # library code assigned by collectionHQ
 DATE=`date +%Y%m%d`
 FILE="Holds-$LIBRARYNAME""$DATE".csv
 FTPUSER="user"
@@ -28,12 +27,14 @@ FTPPASS="passwd"
 FTPSITE="ftp.collectionhq.com"
 EMAILFROM="you@example.org"
 EMAILTO="thee@example.org"
+EXTRACTORG=1
+HOLDEXTRACT="SELECT collectionHQ.write_hold_rows_to_stdout($EXTRACTORG);"
 
 function get_data_from_sql {
   echo The hold extract for $DATE has begun. | ./send-email.pl --from "$EMAILFROM" --to "$EMAILTO" --subject "collectionHQ hold extraction has begun"
   date
   echo Fetching Holds...
-  psql -A -t -U evergreen < get_items.sql 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]+ rows written/) { print STDERR; } else { print; }' > $FILE
+  psql -A -X -q -t -U evergreen -c "$HOLDEXTRACT" 2>&1 | cut -c8- | perl -ne 'if (m/^[0-9]+ rows written/) { print STDERR; } else { print; }' > $FILE
   date
   NUMHOLDS=`wc -l $FILE | cut -d' ' -f1`
   echo done.
