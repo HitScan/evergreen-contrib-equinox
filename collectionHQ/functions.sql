@@ -89,10 +89,11 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
     org_unit_id ALIAS for $2;
     lms_bib_id BIGINT;
     library_code TEXT;
+    last_circ_lib TEXT;
     bar_code TEXT;
     last_use_date TEXT;
-    cumulative_use_total TEXT;
-    cumulative_use_current TEXT;
+    total_checkouts INTEGER;
+    total_renewals INTEGER;
     status TEXT;
     date_added TEXT;
     price TEXT;
@@ -127,8 +128,8 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
       FROM reporter.materialized_simple_record r
       WHERE id = lms_bib_id;
       SELECT collectionHQ.attempt_price(ac.price::TEXT), barcode, ac.status,
-             REPLACE(create_date::DATE::TEXT, '-', ''),
-             CASE WHEN floating::INT > 0 THEN 'Y' ELSE NULL END
+        REPLACE(create_date::DATE::TEXT, '-', ''),
+        CASE WHEN floating::INT > 0 THEN 'Y' ELSE NULL END
       INTO price, bar_code, status, date_added, rotating_stock
       FROM asset.copy ac 
       WHERE id = item;
@@ -140,20 +141,23 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
       END IF;
       SELECT REPLACE(NOW()::DATE::TEXT, '-', '') INTO extract_date;
       SELECT ou.shortname INTO library_code FROM actor.org_unit ou, asset.copy c WHERE ou.id = c.circ_lib AND c.id = item;
-      SELECT REPLACE(xact_start::DATE::TEXT, '-', '') INTO last_use_date FROM action.circulation WHERE target_copy = item ORDER BY xact_start DESC LIMIT 1;
-      SELECT circ_count INTO cumulative_use_total FROM extend_reporter.full_circ_count WHERE id = item;
-      IF cumulative_use_total IS NULL THEN
-        cumulative_use_total := '0';
-      END IF;
-      SELECT MAX(dest_recv_time) INTO arrived
-      FROM action.transit_copy atc
-      JOIN asset.copy ac ON (ac.id = atc.target_copy AND ac.circ_lib = atc.dest)
-      WHERE ac.id = item;
-      IF arrived IS NOT NULL THEN
-        SELECT COUNT(*) INTO cumulative_use_current FROM action.circulation WHERE target_copy = item AND xact_start > arrived;
-      ELSE
-      cumulative_use_current := '0'; 
-      END IF;
+      SELECT aou.shortname, REPLACE(circ.xact_start::DATE::TEXT, '-', '') INTO last_circ_lib, last_use_date FROM actor.org_unit aou INNER JOIN action.circulation circ ON (circ.circ_lib = aou.id) 
+        WHERE circ.target_copy = item ORDER BY circ.xact_start DESC LIMIT 1;
+      SELECT SUM(circ_count), SUM(renew_count) INTO total_checkouts, total_renewals FROM (
+          SELECT
+              SUM(CASE WHEN phone_renewal IS FALSE AND desk_renewal IS FALSE AND opac_renewal IS FALSE THEN 1 ELSE 0 END) AS circ_count,
+              SUM(CASE WHEN phone_renewal IS TRUE OR desk_renewal IS TRUE OR opac_renewal IS TRUE THEN 1 ELSE 0 END) AS renew_count      
+            FROM action.circulation
+          WHERE target_copy = item
+          UNION ALL
+            (SELECT
+                SUM(CASE WHEN phone_renewal IS FALSE AND desk_renewal IS FALSE AND opac_renewal IS FALSE THEN 1 ELSE 0 END) AS circ_count,
+                SUM(CASE WHEN phone_renewal IS TRUE OR desk_renewal IS TRUE OR opac_renewal IS TRUE THEN 1 ELSE 0 END) AS renew_count          
+              FROM action.aged_circulation
+            WHERE target_copy = item)
+          UNION ALL
+            (SELECT circ_count, 0 AS renew_count FROM extend_reporter.legacy_circ_count WHERE id = item)
+        ) AS totals;
       SELECT SUBSTRING(value FROM 1 FOR 100) INTO notes FROM asset.copy_note WHERE owning_copy = item AND title ILIKE '%collectionHQ%' ORDER BY id LIMIT 1;
       SELECT l.name INTO collection_code FROM asset.copy c, asset.copy_location l WHERE c.location = l.id AND c.id = item;
   
@@ -164,15 +168,16 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
       filter_level_2 := ''; -- FIXME do we want something else here?
       filter_level_3 := ''; -- FIXME do we want something else here?
       filter_level_4 := ''; -- FIXME do we want something else here?
-  
+    
       output := '##HOLD##,'
         || lms_bib_id || ','
         || COALESCE(collectionHQ.quote(authority_code), '') || ','
         || COALESCE(collectionHQ.quote(library_code), '') || ','
+        || COALESCE(collectionHQ.quote(last_circ_lib), '') || ','
         || COALESCE(collectionHQ.quote(bar_code), '') || ','
         || COALESCE(collectionHQ.quote(last_use_date), '') || ','
-        || COALESCE(cumulative_use_total, '') || ','
-        || COALESCE(cumulative_use_current, '') || ','
+        || COALESCE(total_checkouts, 0) || ','
+        || COALESCE(total_renewals, 0) || ','
         || COALESCE(collectionHQ.quote(status), '') || ','
         || COALESCE(collectionHQ.quote(date_added), '') || ','
         || COALESCE(price, '') || ','
@@ -189,9 +194,9 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
         || COALESCE(collectionHQ.quote(filter_level_3), '') || ','
         || COALESCE(collectionHQ.quote(filter_level_4), '') || ','
         || COALESCE(collectionHQ.quote(isbn), '');
-  
+     
        RAISE INFO '%', output;
-
+     
        num_rows := num_rows + 1;
        IF (num_rows::numeric % 1000.0 = 0.0) THEN RAISE INFO '% rows written', num_rows; END IF;
 
@@ -231,11 +236,15 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_bib_rows_to_stdout (TEXT, INT) RET
     LOOP
 
       SELECT r.isbn[1],
-             SUBSTRING(r.title FROM 1 FOR 100),
+             -- SUBSTRING(r.title FROM 1 FOR 100),
              SUBSTRING(r.author FROM 1 FOR 50)
-      INTO isbn, title, author
+      -- INTO isbn, title, author
+      INTO isbn, author
       FROM reporter.materialized_simple_record r
       WHERE id = lms_bib_id;
+      WITH title_fields AS (
+            SELECT subfield, CASE WHEN subfield = 'a' THEN value || ' : ' ELSE value END FROM metabib.real_full_rec WHERE tag='245' AND subfield IN ('a','b','n','p') AND record = lms_bib_id ORDER BY subfield
+            ) SELECT STRING_AGG(value, ' ') INTO title FROM title_fields;
       SELECT 
         SUBSTRING(naco_normalize((XPATH('//marc:datafield[@tag="250"][1]/marc:subfield[@code="a"]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT, 'a') FROM 1 FOR 20),
         collectionHQ.attempt_year((XPATH('//marc:datafield[@tag="260"][1]/marc:subfield[@code="c"]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT),
