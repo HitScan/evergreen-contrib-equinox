@@ -120,10 +120,10 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_item_rows_to_stdout (TEXT, INT) RE
       SELECT id FROM asset.copy WHERE NOT deleted AND circ_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) ORDER BY id
     LOOP
 
-      SELECT cn.record, cn.label
+      SELECT cn.record, BTRIM(BTRIM(acnp.label) || ' ' || BTRIM(cn.label) || ' ' || BTRIM(acns.label))
       INTO lms_bib_id, filter_level_1
-      FROM asset.call_number cn, asset.copy c 
-      WHERE c.call_number = cn.id AND c.id =  item;
+      FROM asset.call_number cn, asset.copy c, asset.call_number_prefix acnp, asset.call_number_suffix acns
+      WHERE c.call_number = cn.id AND c.id =  item and cn.prefix = acnp.id and cn.suffix = acns.id;
       SELECT r.isbn[1] INTO isbn
       FROM reporter.materialized_simple_record r
       WHERE id = lms_bib_id;
@@ -236,15 +236,13 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_bib_rows_to_stdout (TEXT, INT) RET
     LOOP
 
       SELECT r.isbn[1],
-             -- SUBSTRING(r.title FROM 1 FOR 100),
              SUBSTRING(r.author FROM 1 FOR 50)
-      -- INTO isbn, title, author
       INTO isbn, author
       FROM reporter.materialized_simple_record r
       WHERE id = lms_bib_id;
       WITH title_fields AS (
-            SELECT subfield, CASE WHEN subfield = 'a' THEN value || ' : ' ELSE value END FROM metabib.real_full_rec WHERE tag='245' AND subfield IN ('a','b','n','p') AND record = lms_bib_id ORDER BY subfield
-            ) SELECT STRING_AGG(value, ' ') INTO title FROM title_fields;
+            SELECT subfield, CASE WHEN subfield = 'a' THEN value || ': ' ELSE value END FROM metabib.real_full_rec WHERE tag='245' AND subfield IN ('a','b','n','p') AND record = lms_bib_id ORDER BY subfield
+      ) SELECT STRING_AGG(value, ' ') INTO title FROM title_fields;
       SELECT 
         SUBSTRING(naco_normalize((XPATH('//marc:datafield[@tag="250"][1]/marc:subfield[@code="a"]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT, 'a') FROM 1 FOR 20),
         collectionHQ.attempt_year((XPATH('//marc:datafield[@tag="260"][1]/marc:subfield[@code="c"]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT),
@@ -252,7 +250,7 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_bib_rows_to_stdout (TEXT, INT) RET
         collectionHQ.attempt_price((XPATH('//marc:datafield[@tag="020"][1]/marc:subfield[@code="c"]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT),
         SUBSTRING(naco_normalize((XPATH('//marc:datafield[@tag="082"][1]/marc:subfield[@code="a"][1]/text()', marc::XML, ARRAY[ARRAY['marc', 'http://www.loc.gov/MARC21/slim']]))[1]::TEXT, 'a') FROM 1 FOR 20)
       INTO edition_num, publication_date, publisher, price, class_num
-      FROM biblio.record_entry
+      FROM biblio.record_entry 
       WHERE id = lms_bib_id;
 
       SELECT circ_modifier INTO lms_item_type FROM asset.copy c, asset.call_number cn WHERE cn.record = lms_bib_id AND c.circ_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) AND cn.id = c.call_number AND NOT cn.deleted AND NOT c.deleted LIMIT 1;
@@ -337,14 +335,18 @@ CREATE OR REPLACE FUNCTION collectionHQ.write_hold_rows_to_stdout (INT) RETURNS 
       FROM actor.org_unit aou 
       WHERE aou.id = hold.pickup_lib;
       
-      SELECT ARRAY_TO_STRING(rmsr.isbn, ';'), rmsr.title, rmsr.author, rmsr.pubdate 
-      INTO isbn, title, author, publication_date 
+      WITH title_fields AS (
+            SELECT subfield, CASE WHEN subfield = 'a' THEN value || ': ' ELSE value END FROM metabib.real_full_rec WHERE tag='245' AND subfield IN ('a','b','n','p') AND record = lms_bib_id ORDER BY subfield
+      ) SELECT STRING_AGG(value, ' ') INTO title FROM title_fields;
+      
+      SELECT ARRAY_TO_STRING(rmsr.isbn, ';'), rmsr.author, rmsr.pubdate 
+      INTO isbn, author, publication_date 
       FROM reporter.materialized_simple_record rmsr 
       WHERE rmsr.id = hold.target;
       
-      SELECT acn.label 
+      SELECT BTRIM(BTRIM(acnp.label) || ' ' || BTRIM(acn.label) || ' ' || BTRIM(acns.label))
       INTO volume 
-      FROM asset.call_number acn 
+      FROM asset.call_number acn INNER JOIN asset.call_number_prefix acnp ON (acn.prefix = acnp.id) INNER JOIN asset.call_number_suffix acns ON (acn.suffix = acns.id)
       WHERE acn.record = hold.target 
         AND acn.owning_lib IN (SELECT id FROM actor.org_unit_descendants(org_unit_id)) 
       LIMIT 1;
